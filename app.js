@@ -93,6 +93,7 @@ const LOCK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke
 const HOME_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>';
 
 function render(){
+  if(ME && ME.role==='admin'){ cur={mod:'admin'}; return renderAdmin($('main')); }
   if(cur.mod==='admin' && !(ME && ME.role==='admin')) cur={mod:'home'};
   if(cur.mod!=='home' && cur.mod!=='final' && cur.mod!=='ach' && cur.mod!=='admin' && (typeof cur.mod!=='number' || !M[cur.mod] || isLocked(cur.mod))) cur={mod:'home'};
   if(typeof cur.mod==='number'){
@@ -510,9 +511,10 @@ async function boot(){
   document.body.classList.remove('signed-out');
   $('login').hidden=true; $('app').hidden=false;
   $('who').textContent = ME.full_name;
+  document.body.classList.toggle('is-admin', ME.role==='admin');
   render();
 }
-async function logout(){ await pushProgress(); await sb.auth.signOut(); ME=null; S={quiz:{},scen:{},read:{},name:''}; showLogin(); }
+async function logout(){ await pushProgress(); await sb.auth.signOut(); ME=null; S={quiz:{},scen:{},read:{},name:''}; document.body.classList.remove('is-admin'); showLogin(); }
 
 // ── admin page ─────────────────────────────────────────
 async function callAdmin(body){
