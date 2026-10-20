@@ -1,6 +1,6 @@
 // BrotherCond Sales Academy — app logic
 const M = window.M, BRANDS = window.BRANDS, SKILLS = window.SKILLS;
-const OPEN_ALL = true;              // modules open without unlocking; set false for step-by-step
+const OPEN_ALL = false;             // step-by-step: each module, tab and lesson unlocks after the one before
 const FINAL_PER_SKILL = 6;          // 7 skills × 6 = 42 questions
 const FINAL_PASS = 80;
 
