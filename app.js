@@ -14,7 +14,13 @@ let _saveT = null;
 const save = () => { clearTimeout(_saveT); _saveT = setTimeout(pushProgress, 700); };
 async function pushProgress(){
   if(!ME || !ME.id) return; clearTimeout(_saveT);
-  const {error} = await sb.from('progress').upsert({user_id:ME.id, state:{quiz:S.quiz, scen:S.scen, read:S.read}, updated_at:new Date().toISOString()});
+  const {error} = await sb.from('progress').upsert({user_id:ME.id, state:{quiz:S.quiz, scen:S.scen, read:S.read}, rev:S.rev||0, updated_at:new Date().toISOString()});
+  if(error && /progress_reset/.test(error.message||'')){
+    // the admin reset this trainee's progress while they were signed in: load the new state
+    await loadMine(); cur={mod:'home'}; saveCur(); render();
+    showOverlay(`<h3 id="ovl-t">تقدّمك اتعمله إعادة</h3><p class="setup">المدير رجّع جزء من الكورس أو الكورس كله من الأول. كمّل من أول مستوى مفتوح.</p><button class="btn" data-act="ok">تمام</button>`);
+    return;
+  }
   if(error) toast('مش قادر يحفظ تقدّمك، اتأكد من النت');
 }
 let cur = {mod:'home'};
@@ -477,11 +483,11 @@ function applyFinal(row){
 async function loadMine(){
   const [{data:prof},{data:prog},{data:fin}] = await Promise.all([
     sb.from('profiles').select('*').eq('id', ME.id).single(),
-    sb.from('progress').select('state').eq('user_id', ME.id).maybeSingle(),
+    sb.from('progress').select('state, rev').eq('user_id', ME.id).maybeSingle(),
     sb.from('final_results').select('*').eq('user_id', ME.id).maybeSingle()]);
   if(prof) ME = prof;
   const st = (prog && prog.state) || {};
-  S = {quiz:st.quiz||{}, scen:st.scen||{}, read:st.read||{}, name:ME.full_name||''};
+  S = {quiz:st.quiz||{}, scen:st.scen||{}, read:st.read||{}, rev:(prog && prog.rev)||0, name:ME.full_name||''};
   applyFinal(fin);
 }
 function showLogin(msg){
@@ -567,12 +573,38 @@ async function renderAdmin(main){
       const s=stateSummary(r.state);
       const fin = r.finished_at ? `<b style="color:var(${r.score>=FINAL_PASS?'--good':'--warm'})">${toAr(r.score)}٪</b>` : (r.started_at?`شغال (${toAr(r.answered)}/${toAr(r.total)})`:(r.final_unlocked?'مفتوح':'—'));
       return `<tr class="${r.active?'':'off'}"><td><b>${esc(r.full_name)}</b>${r.role==='admin'?' <span class="chip">مدير</span>':''}${r.active?'':' <span class="chip">متوقف</span>'}<div class="sl">${r.progress_at?('آخر نشاط '+new Date(r.progress_at).toLocaleDateString('ar-EG')):'لسه مدخلش'}</div></td><td dir="ltr">${esc(r.username)}</td><td>${toAr(s.pass)} / ${toAr(M.length)}</td><td>${toAr(s.pts + (r.score>=FINAL_PASS?r.score*2+200:0))}</td><td>${fin}</td><td>${r.skills?`<button class="lnk" data-sk="${r.id}">${verdictOf(r.skills,r.score)}</button>`:'—'}</td><td dir="ltr">${r.cert_id||'—'}</td>
-       <td><div class="acts"><button class="mini" data-pw="${r.id}">كلمة سر جديدة</button><button class="mini" data-act="${r.id}" data-on="${r.active?0:1}">${r.active?'إيقاف':'تفعيل'}</button>${r.started_at?`<button class="mini warn" data-reset="${r.id}">إعادة الاختبار</button>`:`<button class="mini" data-unlock="${r.id}" data-on="${r.final_unlocked?0:1}">${r.final_unlocked?'اقفل النهائي':'افتح النهائي'}</button>`}</div></td></tr>
+       <td><div class="acts"><button class="mini" data-pw="${r.id}">كلمة سر جديدة</button><button class="mini warn" data-prog="${r.id}">إعادة الكورس</button><button class="mini" data-act="${r.id}" data-on="${r.active?0:1}">${r.active?'إيقاف':'تفعيل'}</button>${r.started_at?`<button class="mini warn" data-reset="${r.id}">إعادة الاختبار</button>`:`<button class="mini" data-unlock="${r.id}" data-on="${r.final_unlocked?0:1}">${r.final_unlocked?'اقفل النهائي':'افتح النهائي'}</button>`}</div></td></tr>
        <tr class="skrow" id="sk-${r.id}" hidden><td colspan="8">${r.skills?skillReport(r.skills):''}</td></tr>`;}).join('')}</tbody></table></div>`;
     $('alist').querySelectorAll('[data-sk]').forEach(b=>b.onclick=()=>{ const t=$('sk-'+b.dataset.sk); t.hidden=!t.hidden; });
     $('alist').querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{ const p=gen(); try{ await callAdmin({action:'password', user_id:b.dataset.pw, password:p}); showOverlay(`<h3 id="ovl-t">كلمة السر الجديدة</h3><div class="big-b" dir="ltr">${p}</div><p class="setup">ابعتها للمتدرب. مش هتظهر تاني.</p><button class="btn" data-act="ok">تمام</button>`); }catch(e){ toast(e.message); } });
     $('alist').querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{ try{ await callAdmin({action:'active', user_id:b.dataset.act, active:b.dataset.on==='1'}); loadList(); }catch(e){ toast(e.message); } });
     $('alist').querySelectorAll('[data-unlock]').forEach(b=>b.onclick=async()=>{ const {error}=await sb.rpc('admin_set_unlock',{p_user:b.dataset.unlock, p_on:b.dataset.on==='1'}); if(error) toast(error.message); loadList(); });
+    $('alist').querySelectorAll('[data-prog]').forEach(b=>b.onclick=()=>{
+      const r=data.find(x=>x.id===b.dataset.prog), st=r.state||{}, q=st.quiz||{}, rd=st.read||{};
+      const opts=M.map((m,i)=>{ const sc=q[m.id], seen=(rd[m.id]||0)>0;
+        const tag = sc!=null ? (sc>=70?`✓ ${toAr(sc)}٪`:`${toAr(sc)}٪`) : (seen?'بدأه':'لسه');
+        return `<option value="${i}">مستوى ${toAr(i+1)}: ${esc(m.title)} (${tag})</option>`; }).join('');
+      showOverlay(`<h3 id="ovl-t">إعادة الكورس: ${esc(r.full_name)}</h3>
+        <div class="rp">
+         <label class="rp-o"><input type="radio" name="rpm" value="all" checked> الكورس كله من الأول</label>
+         <label class="rp-o"><input type="radio" name="rpm" value="from"> من مستوى معيّن واللي بعده</label>
+         <label class="rp-o"><input type="radio" name="rpm" value="one"> مستوى واحد بس</label>
+         <select id="rp-mod" class="inp">${opts}</select>
+         <label class="rp-o"><input type="checkbox" id="rp-fin"${r.started_at?'':' disabled'}> امسح كمان الاختبار النهائي والشهادة${r.started_at?'':' (لسه مدخلوش)'}</label>
+         <p class="setup">بيتمسح للمستوى: الدروس اللي قراها، المواقف، ودرجة الكويز. المستويات اللي بعد مستوى ممسوح بتتقفل لحد ما يعدّيه تاني.</p>
+        </div>
+        <button class="btn" data-act="yes">امسح</button><button class="btn ghost" data-act="no">إلغاء</button>`, async a=>{
+        if(a!=='yes') return;
+        const mode=(document.querySelector('input[name=rpm]:checked')||{}).value, i=+$('rp-mod').value, fin=$('rp-fin').checked;
+        const mods = mode==='all' ? null : (mode==='from' ? M.slice(i).map(m=>m.id) : [M[i].id]);
+        const {error}=await sb.rpc('admin_reset_progress',{p_user:r.id, p_mods:mods, p_final:fin});
+        if(error) return toast(error.message);
+        toast(mode==='all' ? 'اتعمل إعادة للكورس كله' : (mode==='from' ? `اتعمل إعادة من مستوى ${toAr(i+1)}` : `اتعمل إعادة لمستوى ${toAr(i+1)}`));
+        loadList();
+      });
+      const sel=$('rp-mod'), sync=()=>{ sel.disabled = document.querySelector('input[name=rpm]:checked').value==='all'; };
+      document.querySelectorAll('input[name=rpm]').forEach(x=>x.onchange=sync); sync();
+    });
     $('alist').querySelectorAll('[data-reset]').forEach(b=>b.onclick=()=>showOverlay(`<h3 id="ovl-t">إعادة الاختبار النهائي؟</h3><p class="setup">هيتمسح الاختبار ونتيجته والشهادة، والمتدرب ياخد محاولة جديدة.</p><button class="btn" data-act="yes">أيوه، امسح</button><button class="btn ghost" data-act="no">لأ</button>`, async a=>{ if(a!=='yes') return; const {error}=await sb.rpc('admin_reset_final',{p_user:b.dataset.reset}); if(error) toast(error.message); else toast('اتمسح الاختبار النهائي'); loadList(); }));
   }
   loadList();
