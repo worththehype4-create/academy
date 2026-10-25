@@ -1,6 +1,8 @@
 // BrotherCond Sales Academy — app logic
 const M = window.M, BRANDS = window.BRANDS, SKILLS = window.SKILLS;
-const OPEN_ALL = false;             // step-by-step: each module, tab and lesson unlocks after the one before
+let OPEN_ALL = false;               // step-by-step: each module, tab and lesson unlocks after the one before
+const PREVIEW_ASKED = /[?&]preview=1/.test(location.search);   // admin preview: everything open, nothing saved
+let PREVIEW = false;
 const toAr = n => Number(n).toLocaleString('ar-EG');
 // Course settings. With no window.COURSE the page is the original sales course, with the original wording and tables.
 const C = Object.assign({
@@ -42,7 +44,7 @@ let S = {quiz:{}, scen:{}, read:{}, name:""};    // progress (synced to Supabase
 let _saveT = null;
 const save = () => { clearTimeout(_saveT); _saveT = setTimeout(pushProgress, 700); };
 async function pushProgress(){
-  if(!ME || !ME.id) return; clearTimeout(_saveT);
+  if(!ME || !ME.id || PREVIEW) return; clearTimeout(_saveT);
   const row = {user_id:ME.id, state:{quiz:S.quiz, scen:S.scen, read:S.read}, rev:S.rev||0, updated_at:new Date().toISOString()};
   if(C.key) row.course = C.key;
   const {error} = await (C.key ? sb.from(T.prog).upsert(row, {onConflict:'user_id,course'}) : sb.from('progress').upsert(row));
@@ -131,7 +133,7 @@ const LOCK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke
 const HOME_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>';
 
 function render(){
-  if(ME && ME.role==='admin'){ cur={mod:'admin'}; return renderAdmin($('main')); }
+  if(ME && ME.role==='admin' && !PREVIEW){ cur={mod:'admin'}; return renderAdmin($('main')); }
   if(cur.mod==='admin' && !(ME && ME.role==='admin')) cur={mod:'home'};
   if(cur.mod!=='home' && cur.mod!=='final' && cur.mod!=='ach' && cur.mod!=='admin' && (typeof cur.mod!=='number' || !M[cur.mod] || isLocked(cur.mod))) cur={mod:'home'};
   if(typeof cur.mod==='number'){
@@ -304,6 +306,10 @@ function skillReport(sc, SK, VD, PS){
 function renderFinal(main){
   const N=FINAL_PER_SKILL*Object.keys(SKILLS).length, open=allPassed()||(ME&&ME.final_unlocked);
   const head = `<div class="mhead"><div class="mh-badge">${badgeSVG('★',finalPassed(),'--gold',64)}</div><div class="mh-tx"><div class="eyebrow">الختام</div><h2>الاختبار النهائي</h2><p>${C.finalIntro(N, FINAL_PASS)}</p></div></div>`;
+  if(PREVIEW){
+    main.innerHTML = head+`<section class="card"><h3>معاينة المدير</h3><p class="setup">الاختبار النهائي مقفول في وضع المعاينة عشان مفيش محاولة تتسجل. أسئلته بتتسحب من أسئلة اختبارات الموديولات، وتقدر تشوفها في تبويب «الاختبار» في أي موديول.</p></section>`;
+    return;
+  }
   if(S.finalDone){
     const ok=finalPassed();
     main.innerHTML = head+`<div class="result-card ${ok?'ok':'no'}"><div class="score">${toAr(S.final)}٪</div><div><b>${ok?'نجحت في الاختبار النهائي':'لم تجتز الاختبار النهائي'}</b><br><span class="setup">الاختبار اتقفل، ومينفعش يتعاد. ${ok?'شهادتك جاهزة.':'كلّم مديرك عشان يحدد معاك الخطوة الجاية.'}</span></div></div>
@@ -549,12 +555,23 @@ async function boot(){
   document.body.classList.remove('signed-out');
   $('login').hidden=true; $('app').hidden=false;
   $('who').textContent = ME.full_name;
-  document.body.classList.toggle('is-admin', ME.role==='admin');
-  if(ME.role==='admin' && C.key){ location.href='index.html'; return; }
+  PREVIEW = OPEN_ALL = PREVIEW_ASKED && ME.role==='admin';
+  if(PREVIEW){ S={quiz:{}, scen:{}, read:{}, rev:0, name:ME.full_name||''}; applyFinal(null); cur={mod:'home'}; previewBar(); }
+  document.body.classList.toggle('is-admin', ME.role==='admin' && !PREVIEW);
+  if(ME.role==='admin' && C.key && !PREVIEW){ location.href='index.html'; return; }
   courseMenu();
   render();
 }
 async function logout(){ await pushProgress(); await sb.auth.signOut(); ME=null; S={quiz:{},scen:{},read:{},name:''}; document.body.classList.remove('is-admin'); showLogin(); }
+
+// ── admin preview bar ──────────────────────────────────
+function previewBar(){
+  if($('pvbar')) return;
+  const d=document.createElement('div'); d.id='pvbar'; d.className='pvbar';
+  const list=(window.COURSES||[]).filter(c=>!c.soon);
+  d.innerHTML=`<b>وضع المعاينة للمدير</b><span>كل المستويات مفتوحة، ومفيش أي حاجة بتتسجل.</span>${list.map(c=>`<a href="${c.page}?preview=1"${c.id===(C.key||'sales')?' aria-current="page"':''}>${c.title}</a>`).join('')}<a href="index.html">رجوع للوحة الإدارة</a>`;
+  $('app').prepend(d);
+}
 
 // ── course switcher ────────────────────────────────────
 function courseMenu(){
@@ -602,6 +619,8 @@ async function renderAdmin(main){
   const courses=(window.COURSES||[{id:'sales', title:'كورس المبيعات'}]).filter(c=>!c.soon);
   (window.COURSES||[]).forEach(c=>CERT_COURSE[c.id]=c.title);
   main.innerHTML = `<div class="mhead"><div class="mh-tx"><div class="eyebrow">الإدارة</div><h2>لوحة الإدارة</h2><p>اعمل حسابات المتدربين، وتابع تقدّم كل واحد ونتيجة الاختبار النهائي وتقرير المهارات.</p></div></div>
+   <section class="card"><h3>معاينة الكورسات</h3><p class="setup">افتح أي كورس وكل مستوياته مفتوحة عشان تراجع الدروس والمواقف والاختبارات. مفيش حاجة بتتسجل في وضع المعاينة.</p>
+    <div class="row">${(window.COURSES||[{id:'sales',title:'كورس المبيعات',page:'index.html'}]).filter(c=>!c.soon).map(c=>`<a class="btn ghost" href="${c.page}?preview=1">معاينة ${c.title}</a>`).join('')}</div></section>
    <section class="card"><h3>إضافة متدرب</h3>
     <form id="addf" class="addf">
      <label>الاسم بالكامل (هيتكتب في الشهادة)<input id="af-name" class="inp" required></label>
