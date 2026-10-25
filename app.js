@@ -1,11 +1,40 @@
 // BrotherCond Sales Academy — app logic
 const M = window.M, BRANDS = window.BRANDS, SKILLS = window.SKILLS;
 const OPEN_ALL = false;             // step-by-step: each module, tab and lesson unlocks after the one before
-const FINAL_PER_SKILL = 6;          // 7 skills × 6 = 42 questions
-const FINAL_PASS = 80;
-
 const toAr = n => Number(n).toLocaleString('ar-EG');
-const KEY = 'bc-academy';
+// Course settings. With no window.COURSE the page is the original sales course, with the original wording and tables.
+const C = Object.assign({
+  key: null,                         // null = sales course (tables progress / final_results); otherwise course_progress / course_finals
+  store: 'bc-academy', perSkill: 6, pass: 80,
+  badges: null, groupColor: null, levels: null,
+  eyebrow: 'أكاديمية برازر كوند للمبيعات',
+  heroText: (n,h)=>`برنامج تدريب كامل لمندوب مبيعات التكييف: ${toAr(n)} موديول، حوالي ${toAr(h)} ساعة تدريب، مواقف حقيقية، واختبار نهائي بشهادة معتمدة من برازر كوند.`,
+  facts: `<div><b>من ١٩٩٠</b><span>أكتر من ٣٥ سنة في السوق</span></div>
+    <div><b>موزع معتمد</b><span>لكل ماركات التكييف</span></div>
+    <div><b>الموزع العام المعتمد</b><span>لتكييفات تراين المنزلية</span></div>
+    <div><b>٤ فروع</b><span>الرحاب · مدينتي · مدينة نصر · التجمع الأول</span></div>`,
+  flow: 'كل موديول: دروس ← قول ومتقولش ← موقف ← اختبار',
+  finalCardSub: N=>`${toAr(N)} موقف من ٧ مهارات، وتقرير بمستواك`,
+  tabs: [['lesson','الدروس'],['say','قول ومتقولش'],['scen','جرّب الموقف'],['quiz','الاختبار']],
+  sayIntro: 'جمل حقيقية من الشغل. اقرأ الفرق وقولها بصوت عالي بأسلوبك.', sayYes: 'قول', sayNo: 'متقولش', sayNext: 'كمّل: جرّب الموقف',
+  scenPick: 'اختار أحسن رد في كل خطوة.', who: 'العميل', scenOk: 'رد ممتاز', scenNo: 'مش أحسن رد',
+  finalIntro: (N,P)=>`${toAr(N)} موقف من ٧ مهارات بيع. النجاح ${toAr(P)}٪ وبيدّيك شارة «مستشار مبيعات معتمد» وشهادة برازر كوند.`,
+  finalMinutes: '٤٥', finalBadge: 'مستشار مبيعات معتمد',
+  verdicts: ['مندوب جاهز للشغل','مندوب كويس ومحتاج متابعة','محتاج تدريب تاني قبل ما يبيع'],
+  verdictShort: ['جاهز للشغل','كويس ومحتاج متابعة','محتاج تدريب تاني'],
+  achIntro: 'كل درس بـ ١٠ نقط، وكل رد صح في الموقف بـ ٢٠ نقطة، وكل اختبار تعدّيه بياخد نتيجته + ٥٠ نقطة وشارة. الاختبار النهائي بيدّي شارة «مستشار مبيعات معتمد» والشهادة.',
+  certAcademy: 'تشهد أكاديمية برازر كوند للمبيعات بأن',
+  certProgram: 'قد أتمّ بنجاح البرنامج التدريبي «مندوب مبيعات التكييف المعتمد»',
+  certSigs: ['مدير المبيعات','مدير التدريب'], certFile: 'BrotherCond-Certificate-'
+}, window.COURSE || {});
+const FINAL_PER_SKILL = C.perSkill;  // 7 skills × 6 = 42 questions
+const FINAL_PASS = C.pass;
+const KEY = C.store;
+// database names: the sales course keeps its original tables and functions
+const T = C.key ? {prog:'course_progress', fin:'course_finals', start:'c_start_final', answer:'c_answer_final', finish:'c_finish_final', cert:'c_make_certificate'}
+                : {prog:'progress', fin:'final_results', start:'start_final', answer:'answer_final', finish:'finish_final', cert:'make_certificate'};
+const ck = q => C.key ? q.eq('course', C.key) : q;
+const ca = a => C.key ? Object.assign({p_course:C.key}, a) : a;
 const EMAIL_DOMAIN = 'academy.brothercond.app';
 const sb = window.supabase.createClient(window.ACADEMY.url, window.ACADEMY.anonKey);
 let ME = null;                                   // signed-in profile
@@ -14,7 +43,9 @@ let _saveT = null;
 const save = () => { clearTimeout(_saveT); _saveT = setTimeout(pushProgress, 700); };
 async function pushProgress(){
   if(!ME || !ME.id) return; clearTimeout(_saveT);
-  const {error} = await sb.from('progress').upsert({user_id:ME.id, state:{quiz:S.quiz, scen:S.scen, read:S.read}, rev:S.rev||0, updated_at:new Date().toISOString()});
+  const row = {user_id:ME.id, state:{quiz:S.quiz, scen:S.scen, read:S.read}, rev:S.rev||0, updated_at:new Date().toISOString()};
+  if(C.key) row.course = C.key;
+  const {error} = await (C.key ? sb.from(T.prog).upsert(row, {onConflict:'user_id,course'}) : sb.from('progress').upsert(row));
   if(error && /progress_reset/.test(error.message||'')){
     // the admin reset this trainee's progress while they were signed in: load the new state
     await loadMine(); cur={mod:'home'}; saveCur(); render();
@@ -43,9 +74,10 @@ const arDigits = s => +String(s).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.in
 const totalHours = () => Math.round(M.reduce((a,m)=>a+arDigits(m.time),0)/60);
 
 // ── points, badges, levels ─────────────────────────────
-const BADGE = {start:'أول خطوة', product:'خبير المنتج', howitworks:'فاهم الدورة', brands:'خبير الماركات', sizing:'حاسب الحِمل', talk:'صاحب الكلمة', steps:'مهندس البيعة', showroom:'نجم المعرض', services:'خبير الخدمات', homevisit:'منسّق المعاينات', b2b:'صياد المشاريع', objections:'قاهر الاعتراضات', closing:'القفّال'};
-const GROUP_COLOR = {'البداية':'--accent','اعرف منتجك':'--accent','مهارات البيع':'--warm','قنوات البيع':'--good','الاحتراف':'--gold'};
-const LEVELS = [[0,'مبتدئ'],[500,'متدرب'],[1300,'مندوب'],[2300,'مندوب محترف'],[3300,'خبير مبيعات']];
+const BADGE_SALES = {start:'أول خطوة', product:'خبير المنتج', howitworks:'فاهم الدورة', brands:'خبير الماركات', sizing:'حاسب الحِمل', talk:'صاحب الكلمة', steps:'مهندس البيعة', showroom:'نجم المعرض', services:'خبير الخدمات', homevisit:'منسّق المعاينات', b2b:'صياد المشاريع', objections:'قاهر الاعتراضات', closing:'القفّال'};
+const BADGE = C.badges || (C.key ? Object.fromEntries(M.map(m=>[m.id,m.badge])) : BADGE_SALES);
+const GROUP_COLOR = C.groupColor || {'البداية':'--accent','اعرف منتجك':'--accent','مهارات البيع':'--warm','قنوات البيع':'--good','الاحتراف':'--gold'};
+const LEVELS = C.levels || [[0,'مبتدئ'],[500,'متدرب'],[1300,'مندوب'],[2300,'مندوب محترف'],[3300,'خبير مبيعات']];
 const modPoints = m => ({l:Math.min(S.read[m.id]||0,m.lessons.length)*10, s:(S.scen[m.id]||0)*20, q:passed(m.id)?(S.quiz[m.id]+50):0});
 const finalPoints = () => finalPassed()? S.final*2+200 : 0;
 const points = () => M.reduce((a,m)=>{const x=modPoints(m); return a+x.l+x.s+x.q;},0) + finalPoints();
@@ -123,24 +155,21 @@ function renderHome(main){
   main.innerHTML = `
    <section class="hero">
     <div class="hero-tx">
-      <div class="eyebrow">أكاديمية برازر كوند للمبيعات</div>
+      <div class="eyebrow">${C.eyebrow}</div>
       <h2>${nm?('أهلاً يا '+esc(nm.split(' ')[0])):'أهلاً بيك في الأكاديمية'}</h2>
-      <p>برنامج تدريب كامل لمندوب مبيعات التكييف: ${toAr(M.length)} موديول، حوالي ${toAr(totalHours())} ساعة تدريب، مواقف حقيقية، واختبار نهائي بشهادة معتمدة من برازر كوند.</p>
+      <p>${C.heroText(M.length, totalHours())}</p>
       ${nm?'':`<div class="namebox"><label for="hname">اكتب اسمك بالكامل زي ما هيتكتب في الشهادة</label><div class="row"><input id="hname" class="inp" placeholder="الاسم بالكامل" autocomplete="name"><button class="btn" id="hsave">حفظ</button></div></div>`}
       <div class="row" style="margin-top:6px">${next>=0?`<button class="btn" id="hgo">${done?'كمّل':'ابدأ'}: ${M[next].title}</button>`:`<button class="btn" id="hfinal">${S.finalDone?'شوف نتيجتك':'روح للاختبار النهائي'}</button>`}<button class="btn ghost" id="hach">شاراتي والشهادة</button></div>
     </div>
     <div class="hero-ring">${ring(pct,140)}<div class="sl">${toAr(done)} من ${toAr(M.length)} موديول</div></div>
    </section>
    <section class="facts">
-    <div><b>من ١٩٩٠</b><span>أكتر من ٣٥ سنة في السوق</span></div>
-    <div><b>موزع معتمد</b><span>لكل ماركات التكييف</span></div>
-    <div><b>الموزع العام المعتمد</b><span>لتكييفات تراين المنزلية</span></div>
-    <div><b>٤ فروع</b><span>الرحاب · مدينتي · مدينة نصر · التجمع الأول</span></div>
+    ${C.facts}
    </section>
    <section>
-    <div class="sec-h"><h3>الموديولات</h3><span class="sl">كل موديول: دروس ← قول ومتقولش ← موقف ← اختبار</span></div>
+    <div class="sec-h"><h3>الموديولات</h3><span class="sl">${C.flow}</span></div>
     <div class="mgrid">${M.map((m,i)=>{ const st = passed(m.id)?'done':((S.read[m.id]||S.quiz[m.id]!=null)?'prog':''); const lab = passed(m.id)?('عدّيت · '+toAr(S.quiz[m.id])+'٪'):(st==='prog'?'شغال فيه':'لسه'); return `<button class="mcard ${st}" data-i="${i}" ${isLocked(i)?'disabled':''}><span class="mc-top">${badgeSVG(toAr(i+1),passed(m.id),GROUP_COLOR[m.group]||'--accent',44)}<span class="chip ${st==='done'?'ok':''}">${isLocked(i)?'مقفول':lab}</span></span><span class="mc-g">${m.group}</span><span class="mc-t">${m.title}</span><span class="mc-s">${m.sub}</span><span class="mc-f">${m.time} · ${toAr(m.lessons.length)} دروس</span></button>`; }).join('')}
-     <button class="mcard final ${finalPassed()?'done':''}" id="hfcard"><span class="mc-top">${badgeSVG('★',finalPassed(),'--gold',44)}<span class="chip ${finalPassed()?'ok':''}">${S.finalDone?('النتيجة '+toAr(S.final)+'٪'):'محاولة واحدة'}</span></span><span class="mc-g">الختام</span><span class="mc-t">الاختبار النهائي والشهادة</span><span class="mc-s">${toAr(FINAL_PER_SKILL*Object.keys(SKILLS).length)} موقف من ٧ مهارات، وتقرير بمستواك</span><span class="mc-f">النجاح ${toAr(FINAL_PASS)}٪</span></button>
+     <button class="mcard final ${finalPassed()?'done':''}" id="hfcard"><span class="mc-top">${badgeSVG('★',finalPassed(),'--gold',44)}<span class="chip ${finalPassed()?'ok':''}">${S.finalDone?('النتيجة '+toAr(S.final)+'٪'):'محاولة واحدة'}</span></span><span class="mc-g">الختام</span><span class="mc-t">الاختبار النهائي والشهادة</span><span class="mc-s">${C.finalCardSub(FINAL_PER_SKILL*Object.keys(SKILLS).length)}</span><span class="mc-f">النجاح ${toAr(FINAL_PASS)}٪</span></button>
     </div>
    </section>`;
   main.querySelectorAll('.mcard[data-i]').forEach(b=>b.onclick=()=>go({mod:+b.dataset.i,tab:'lesson',l:0}));
@@ -154,7 +183,7 @@ function renderHome(main){
 // ── module ─────────────────────────────────────────────
 function renderModule(main, m){
   const i=M.indexOf(m);
-  const tabs = [['lesson','الدروس'],['say','قول ومتقولش'],['scen','جرّب الموقف'],['quiz','الاختبار']];
+  const tabs = C.tabs;
   main.innerHTML = `
     <div class="mhead">
       <div class="mh-badge">${badgeSVG(toAr(i+1),passed(m.id),GROUP_COLOR[m.group]||'--accent',64)}</div>
@@ -192,13 +221,13 @@ function renderLesson(p,m){
   $('lnext').onclick=()=>{ if(i+1>read) toast('+١٠ نقط'); S.read[m.id]=Math.max(read,i+1); save(); if(last) cur.tab='say'; else cur.l=i+1; saveCur(); render(); topOfMain(); };
 }
 function renderSay(p,m){
-  p.innerHTML = `<p class="setup">جمل حقيقية من الشغل. اقرأ الفرق وقولها بصوت عالي بأسلوبك.</p><div class="saylist">`+
-    m.say.map(([y,n])=>`<div class="say"><div class="yes"><span class="k">قول</span>${y}</div><div class="no"><span class="k">متقولش</span>${n}</div></div>`).join('')+`</div>`+nextBtn('كمّل: جرّب الموقف');
+  p.innerHTML = `<p class="setup">${C.sayIntro}</p><div class="saylist">`+
+    m.say.map(([y,n])=>`<div class="say"><div class="yes"><span class="k">${C.sayYes}</span>${y}</div><div class="no"><span class="k">${C.sayNo}</span>${n}</div></div>`).join('')+`</div>`+nextBtn(C.sayNext);
   wireNext('scen');
 }
 function renderScen(p,m){
   const sc=m.scenario; let i=0, score=0;
-  p.innerHTML = `<div class="scene"><b>الموقف</b>${sc.setup} اختار أحسن رد في كل خطوة.</div><div id="steps" class="pane"></div>`;
+  p.innerHTML = `<div class="scene"><b>الموقف</b>${sc.setup} ${C.scenPick}</div><div id="steps" class="pane"></div>`;
   const box=p.querySelector('#steps');
   function step(){
     if(i>=sc.steps.length){
@@ -209,13 +238,13 @@ function renderScen(p,m){
     }
     const st=sc.steps[i], order=shuffle(st.o.map((_,k)=>k));
     const d=document.createElement('div'); d.className='pane';
-    d.innerHTML = `<div class="bubble"><div class="who">العميل</div>${st.c}</div><div class="opts">${order.map(k=>`<button class="opt" data-k="${k}">${st.o[k].t}</button>`).join('')}</div><div class="fbx"></div>`;
+    d.innerHTML = `<div class="bubble"><div class="who">${st.w||C.who}</div>${st.c}</div><div class="opts">${order.map(k=>`<button class="opt" data-k="${k}">${st.o[k].t}</button>`).join('')}</div><div class="fbx"></div>`;
     box.appendChild(d);
     d.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{
       const o=st.o[+b.dataset.k]; if(o.ok) score++;
       d.querySelectorAll('.opt').forEach(x=>{ x.disabled=true; if(st.o[+x.dataset.k].ok) x.classList.add('right'); });
       if(!o.ok) b.classList.add('wrong');
-      d.querySelector('.fbx').innerHTML=`<div class="fb ${o.ok?'right':'wrong'}"><b>${o.ok?'رد ممتاز':'مش أحسن رد'}</b>${o.fb}</div>`;
+      d.querySelector('.fbx').innerHTML=`<div class="fb ${o.ok?'right':'wrong'}"><b>${o.ok?C.scenOk:C.scenNo}</b>${o.fb}</div>`;
       i++; setTimeout(step,250);
     });
   }
@@ -256,24 +285,25 @@ async function startFinal(){
   const ids = shuffle(Object.keys(SKILLS).flatMap(k=>pool.filter(q=>q.k===k).slice(0,FINAL_PER_SKILL).map(q=>q.id)));
   const perms = ids.map(id=>shuffle(ALLQ[id].o.map((_,k)=>k)));
   await pushProgress();
-  const {data, error} = await sb.rpc('start_final', {p_ids:ids, p_perms:perms});
+  const {data, error} = await sb.rpc(T.start, ca({p_ids:ids, p_perms:perms}));
   if(error){ toast(error.message.includes('modules')?'لازم تعدّي كل الموديولات الأول':'مش قادر يبدأ الاختبار، جرّب تاني'); return; }
   applyFinal(data);
 }
 function skillScores(fx){ const o={}; fx.ids.forEach((id,n)=>{ const q=ALLQ[id]; if(!q) return; o[q.k]=o[q.k]||{r:0,n:0}; o[q.k].n++; if(fx.ans[n]===q.a) o[q.k].r++; }); return o; }
-function skillReport(sc){
-  const keys=Object.keys(SKILLS).filter(k=>sc[k]);
+function skillReport(sc, SK, VD, PS){
+  SK=SK||SKILLS; VD=VD||C.verdicts; PS=PS||FINAL_PASS;
+  const keys=Object.keys(SK).filter(k=>sc[k]);
   const tot=keys.reduce((a,k)=>a+sc[k].r,0), n=keys.reduce((a,k)=>a+sc[k].n,0), pct=n?Math.round(100*tot/n):0;
-  const weak=keys.filter(k=>sc[k].r/sc[k].n<.67).map(k=>SKILLS[k]);
-  const v = pct>=85&&!weak.length ? ['مندوب جاهز للشغل','--good','حكمه على المواقف سليم في كل المهارات.']
-    : pct>=FINAL_PASS ? ['مندوب كويس ومحتاج متابعة','--gold', weak.length?('يركّز على: '+weak.join('، ')+'.'):'يراجع المواقف اللي غلط فيها.']
-    : ['محتاج تدريب تاني قبل ما يبيع','--warm','يرجع للموديولات الخاصة بـ: '+(weak.join('، ')||'كل المهارات')+'.'];
+  const weak=keys.filter(k=>sc[k].r/sc[k].n<.67).map(k=>SK[k]);
+  const v = pct>=85&&!weak.length ? [VD[0],'--good','حكمه على المواقف سليم في كل المهارات.']
+    : pct>=PS ? [VD[1],'--gold', weak.length?('يركّز على: '+weak.join('، ')+'.'):'يراجع المواقف اللي غلط فيها.']
+    : [VD[2],'--warm','يرجع للموديولات الخاصة بـ: '+(weak.join('، ')||'كل المهارات')+'.'];
   return `<section class="card"><h3>تقرير المهارات</h3><div class="verdict" style="--vc:var(${v[1]})"><b>${v[0]}</b><span>${v[2]}</span></div>
-   <div class="skills">${keys.map(k=>{const p=Math.round(100*sc[k].r/sc[k].n), col=p>=67?'--good':(p>=34?'--gold':'--warm'); return `<div class="sk"><span class="skn">${SKILLS[k]}</span><span class="skb"><i style="width:${p}%;background:var(${col})"></i></span><span class="skv">${toAr(sc[k].r)} من ${toAr(sc[k].n)}</span></div>`;}).join('')}</div></section>`;
+   <div class="skills">${keys.map(k=>{const p=Math.round(100*sc[k].r/sc[k].n), col=p>=67?'--good':(p>=34?'--gold':'--warm'); return `<div class="sk"><span class="skn">${SK[k]}</span><span class="skb"><i style="width:${p}%;background:var(${col})"></i></span><span class="skv">${toAr(sc[k].r)} من ${toAr(sc[k].n)}</span></div>`;}).join('')}</div></section>`;
 }
 function renderFinal(main){
   const N=FINAL_PER_SKILL*Object.keys(SKILLS).length, open=allPassed()||(ME&&ME.final_unlocked);
-  const head = `<div class="mhead"><div class="mh-badge">${badgeSVG('★',finalPassed(),'--gold',64)}</div><div class="mh-tx"><div class="eyebrow">الختام</div><h2>الاختبار النهائي</h2><p>${toAr(N)} موقف من ٧ مهارات بيع. النجاح ${toAr(FINAL_PASS)}٪ وبيدّيك شارة «مستشار مبيعات معتمد» وشهادة برازر كوند.</p></div></div>`;
+  const head = `<div class="mhead"><div class="mh-badge">${badgeSVG('★',finalPassed(),'--gold',64)}</div><div class="mh-tx"><div class="eyebrow">الختام</div><h2>الاختبار النهائي</h2><p>${C.finalIntro(N, FINAL_PASS)}</p></div></div>`;
   if(S.finalDone){
     const ok=finalPassed();
     main.innerHTML = head+`<div class="result-card ${ok?'ok':'no'}"><div class="score">${toAr(S.final)}٪</div><div><b>${ok?'نجحت في الاختبار النهائي':'لم تجتز الاختبار النهائي'}</b><br><span class="setup">الاختبار اتقفل، ومينفعش يتعاد. ${ok?'شهادتك جاهزة.':'كلّم مديرك عشان يحدد معاك الخطوة الجاية.'}</span></div></div>
@@ -291,7 +321,7 @@ function renderFinal(main){
       <li>${toAr(N)} سؤال، وكل إجابة بتتسجل أول ما تختارها ومينفعش ترجع فيها.</li>
       <li>مش هتشوف الإجابة الصح أثناء الاختبار. في الآخر هتاخد نتيجتك وتقرير بمستواك في كل مهارة.</li>
       <li>لو الصفحة اتقفلت، هتكمّل من نفس السؤال.</li>
-      <li>خلّي عندك حوالي ٤٥ دقيقة من غير مقاطعة.</li></ul>
+      <li>خلّي عندك حوالي ${C.finalMinutes} دقيقة من غير مقاطعة.</li></ul>
       <label class="agree"><input type="checkbox" id="fok"> فهمت إن عندي محاولة واحدة بس</label>
       <div class="row"><button class="btn" id="fstart" disabled>ابدأ الاختبار النهائي</button></div></section>`;
     const ok=$('fok'), st=$('fstart');
@@ -312,27 +342,27 @@ function finalQuestion(box){
   let pick=null;
   box.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{ pick=+b.dataset.k; box.querySelectorAll('.opt').forEach(x=>x.classList.toggle('sel',x===b)); $('fnext').disabled=false; });
   $('fnext').onclick=async()=>{ if(pick==null) return; const bt=$('fnext'); bt.disabled=true;
-    const {data, error} = await sb.rpc('answer_final', {p_n:n, p_k:pick});
+    const {data, error} = await sb.rpc(T.answer, ca({p_n:n, p_k:pick}));
     if(error){ bt.disabled=false; toast('مش قادر يسجّل الإجابة، اتأكد من النت وجرّب تاني'); return; }
-    if(data===n+1) fx.ans.push(pick); else { const {data:row}=await sb.from('final_results').select('*').eq('user_id',ME.id).single(); applyFinal(row); }
+    if(data===n+1) fx.ans.push(pick); else { const {data:row}=await ck(sb.from(T.fin).select('*').eq('user_id',ME.id)).single(); applyFinal(row); }
     if(S.fx.ans.length>=N) finishFinal(); else { finalQuestion(box); topOfMain(); } };
 }
 async function finishFinal(){
   const before=points();
-  const {data, error} = await sb.rpc('finish_final');
+  const {data, error} = await sb.rpc(T.finish, ca({}));
   if(error){ toast('مش قادر يقفل الاختبار، جرّب تاني'); return; }
   applyFinal(data);
   render(); topOfMain();
-  if(finalPassed()){ const gain=points()-before; setTimeout(()=>showOverlay(`${badgeSVG('★',true,'--gold',110)}<h3 id="ovl-t">مبروك! نجحت في الاختبار النهائي</h3><div class="big-b">«مستشار مبيعات معتمد»</div><div class="plus">+${toAr(gain)} نقطة</div><button class="btn" data-act="cert">اطلع شهادتك</button><button class="btn ghost" data-act="ok">بعدين</button>`, a=>{ if(a==='cert') go({mod:'ach'}); }),350); }
+  if(finalPassed()){ const gain=points()-before; setTimeout(()=>showOverlay(`${badgeSVG('★',true,'--gold',110)}<h3 id="ovl-t">مبروك! نجحت في الاختبار النهائي</h3><div class="big-b">«${C.finalBadge}»</div><div class="plus">+${toAr(gain)} نقطة</div><button class="btn" data-act="cert">اطلع شهادتك</button><button class="btn ghost" data-act="ok">بعدين</button>`, a=>{ if(a==='cert') go({mod:'ach'}); }),350); }
 }
 
 // ── achievements, certificate, manager ─────────────────
 function renderAch(main){
   const p=points(), li=levelOf(p);
   const badges = M.map((m,i)=>{const on=passed(m.id); return `<div class="bdg ${on?'':'off'}">${badgeSVG(toAr(i+1),on,GROUP_COLOR[m.group]||'--accent',56)}<div class="bn">${BADGE[m.id]}</div><div class="bm">${on?toAr(S.quiz[m.id])+'٪':m.title}</div></div>`;}).join('')
-    + `<div class="bdg ${finalPassed()?'':'off'}">${badgeSVG('★',finalPassed(),'--gold',56)}<div class="bn">مستشار مبيعات معتمد</div><div class="bm">${finalPassed()?toAr(S.final)+'٪':'الاختبار النهائي'}</div></div>`;
+    + `<div class="bdg ${finalPassed()?'':'off'}">${badgeSVG('★',finalPassed(),'--gold',56)}<div class="bn">${C.finalBadge}</div><div class="bm">${finalPassed()?toAr(S.final)+'٪':'الاختبار النهائي'}</div></div>`;
   const rows = M.map(m=>{const x=modPoints(m); return `<tr><td>${m.title}</td><td>${toAr(x.l)}</td><td>${toAr(x.s)}</td><td>${toAr(x.q)}</td><td><b>${toAr(x.l+x.s+x.q)}</b></td></tr>`;}).join('')+`<tr><td>الاختبار النهائي</td><td>-</td><td>-</td><td>${toAr(finalPoints())}</td><td><b>${toAr(finalPoints())}</b></td></tr>`;
-  main.innerHTML = `<div class="mhead"><div class="mh-tx"><div class="eyebrow">إنجازاتي</div><h2>شاراتي والشهادة</h2><p>كل درس بـ ١٠ نقط، وكل رد صح في الموقف بـ ٢٠ نقطة، وكل اختبار تعدّيه بياخد نتيجته + ٥٠ نقطة وشارة. الاختبار النهائي بيدّي شارة «مستشار مبيعات معتمد» والشهادة.</p></div></div>
+  main.innerHTML = `<div class="mhead"><div class="mh-tx"><div class="eyebrow">إنجازاتي</div><h2>شاراتي والشهادة</h2><p>${C.achIntro}</p></div></div>
    <section class="card lvlcard"><div><div class="sl">نقطك</div><div class="bigp">${toAr(p)}</div></div><div style="flex:1;min-width:220px"><div class="sl">المستوى الحالي</div><div class="lv" style="font-size:20px">${LEVELS[li][1]}</div><div class="ladder">${LEVELS.map((l,k)=>`<span class="${k<=li?'on':''}">${l[1]} · ${toAr(l[0])}</span>`).join('')}</div></div></section>
    <section class="card" id="certsec"><h3>شهادة الإتمام</h3><div id="certbox"></div></section>
    ${S.finalSkills?skillReport(S.finalSkills):''}
@@ -349,7 +379,7 @@ function certBox(box){
   }
   if(!S.cert){
     box.innerHTML = `<p class="setup">الشهادة هتطلع بالاسم ده. راجعه كويس، لأنه بيتثبت بعد ما الشهادة تتعمل. لو فيه غلط كلّم المدير يصلّحه الأول.</p><div class="namefix">${esc(ME.full_name)}</div><div class="row"><button class="btn" id="mkcert">اعمل الشهادة</button></div><div id="cerr"></div>`;
-    $('mkcert').onclick=async()=>{ $('mkcert').disabled=true; const {data, error}=await sb.rpc('make_certificate',{p_name:ME.full_name}); if(error){ $('mkcert').disabled=false; $('cerr').innerHTML='<div class="fb wrong"><b>مش قادر يعمل الشهادة</b>جرّب تاني بعد شوية.</div>'; return; } applyFinal(data); certBox(box); };
+    $('mkcert').onclick=async()=>{ $('mkcert').disabled=true; const {data, error}=await sb.rpc(T.cert, ca({p_name:ME.full_name})); if(error){ $('mkcert').disabled=false; $('cerr').innerHTML='<div class="fb wrong"><b>مش قادر يعمل الشهادة</b>جرّب تاني بعد شوية.</div>'; return; } applyFinal(data); certBox(box); };
     return;
   }
   box.innerHTML = `<p class="setup">جاري تجهيز الشهادة...</p>`;
@@ -361,7 +391,7 @@ function certBox(box){
     const direct = {save: async ({filename, data})=>{ const u=URL.createObjectURL(data); const a=document.createElement('a'); a.href=u; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),4000); return {status:'saved'}; }};
     (window.claude?.use ? window.claude.use('downloads') : Promise.resolve(direct)).catch(()=>direct).then(dl=>{
       if(!dl){ $('dlpdf').hidden=true; $('dlpng').hidden=true; $('dlmsg').textContent='عشان تحفظ الشهادة: كليك يمين عليها واختار «حفظ الصورة»، أو على الموبايل دوس عليها كتير. الصورة عالية الجودة ومناسبة للطباعة A4.'; return; }
-      const fname='BrotherCond-Certificate-'+S.cert.id;
+      const fname=C.certFile+S.cert.id;
       $('dlpdf').onclick=async()=>{ try{ const { jsPDF } = window.jspdf; const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'}); pdf.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,297,210); await dl.save({filename:fname+'.pdf', data:pdf.output('blob')}); toast('اتحفظت الشهادة'); }catch(e){ if(e&&e.code!=='declined') $('dlmsg').textContent='التحميل مش متاح دلوقتي. جرّب صورة PNG أو كليك يمين على الشهادة واحفظها.'; } };
       $('dlpng').onclick=async()=>{ try{ const blob=await new Promise(r=>cv.toBlob(r,'image/png')); await dl.save({filename:fname+'.png', data:blob}); toast('اتحفظت الصورة'); }catch(e){} };
     });
@@ -388,11 +418,11 @@ async function drawCert(){
   x.fillStyle=teal; x.font=F(600,40); x.direction='ltr'; x.fillText('SINCE 1990', W/2, 600); x.direction='rtl';
   x.fillStyle=ink; x.font=F(700,150); x.fillText('شهادة إتمام', W/2, 860);
   x.fillStyle=gold; x.fillRect(W/2-260,905,520,8);
-  x.fillStyle=muted; x.font=F(400,62); x.fillText('تشهد أكاديمية برازر كوند للمبيعات بأن', W/2, 1040);
+  x.fillStyle=muted; x.font=F(400,62); x.fillText(C.certAcademy, W/2, 1040);
   x.fillStyle=navy; x.font=F(700,150); x.fillText(S.cert.name, W/2, 1240, W-700);
   x.strokeStyle='#c9d6de'; x.lineWidth=4; x.beginPath(); x.moveTo(W/2-900,1300); x.lineTo(W/2+900,1300); x.stroke();
   x.fillStyle=ink; x.font=F(400,62);
-  x.fillText('قد أتمّ بنجاح البرنامج التدريبي «مندوب مبيعات التكييف المعتمد»', W/2, 1420);
+  x.fillText(C.certProgram, W/2, 1420);
   x.fillText(`واجتاز الاختبار النهائي بنتيجة ${toAr(S.final)}٪`, W/2, 1510);
   // stat chips
   const st=[[toAr(M.length),'موديول تدريبي'],[toAr(totalHours())+' ساعة','مدة البرنامج'],[toAr(S.final)+'٪','الاختبار النهائي'],[LEVELS[levelOf(points())][1],'المستوى']];
@@ -400,7 +430,7 @@ async function drawCert(){
   st.forEach(([v,l])=>{ x.fillStyle='#ffffff'; x.strokeStyle='#d8e2e8'; x.lineWidth=4; roundRect(x,sx-cw/2,1600,cw,200,28); x.fill(); x.stroke(); x.fillStyle=teal; x.font=F(700,74); x.fillText(v,sx,1710); x.fillStyle=muted; x.font=F(400,40); x.fillText(l,sx,1770); sx-=cw+gap; });
   // signatures
   x.strokeStyle='#9fb3bd'; x.lineWidth=4;
-  [[W-760,'مدير المبيعات'],[760,'مدير التدريب']].forEach(([px,l])=>{ x.beginPath(); x.moveTo(px-330,2030); x.lineTo(px+330,2030); x.stroke(); x.fillStyle=muted; x.font=F(400,44); x.fillText(l,px,2100); });
+  [[W-760,C.certSigs[0]],[760,C.certSigs[1]]].forEach(([px,l])=>{ x.beginPath(); x.moveTo(px-330,2030); x.lineTo(px+330,2030); x.stroke(); x.fillStyle=muted; x.font=F(400,44); x.fillText(l,px,2100); });
   // seal
   const cx=W/2, cy=2000; x.fillStyle=gold; x.beginPath(); for(let k=0;k<48;k++){ const a=k*Math.PI/24, r=k%2?175:190; x.lineTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r); } x.closePath(); x.fill();
   x.strokeStyle='#ffffff'; x.lineWidth=5; x.setLineDash([10,14]); x.beginPath(); x.arc(cx,cy,140,0,Math.PI*2); x.stroke(); x.setLineDash([]);
@@ -481,11 +511,13 @@ function applyFinal(row){
   S.cert = row && row.cert_id ? {name:row.cert_name, id:row.cert_id, date:row.cert_date} : null;
 }
 async function loadMine(){
-  const [{data:prof},{data:prog},{data:fin}] = await Promise.all([
+  const [{data:prof},{data:prog},{data:fin},unl] = await Promise.all([
     sb.from('profiles').select('*').eq('id', ME.id).single(),
-    sb.from('progress').select('state, rev').eq('user_id', ME.id).maybeSingle(),
-    sb.from('final_results').select('*').eq('user_id', ME.id).maybeSingle()]);
+    ck(sb.from(T.prog).select('state, rev').eq('user_id', ME.id)).maybeSingle(),
+    ck(sb.from(T.fin).select('*').eq('user_id', ME.id)).maybeSingle(),
+    C.key ? sb.from('course_unlocks').select('course').eq('user_id', ME.id).eq('course', C.key).maybeSingle() : null]);
   if(prof) ME = prof;
+  if(C.key) ME.final_unlocked = !!(unl && unl.data);
   const st = (prog && prog.state) || {};
   S = {quiz:st.quiz||{}, scen:st.scen||{}, read:st.read||{}, rev:(prog && prog.rev)||0, name:ME.full_name||''};
   applyFinal(fin);
@@ -518,9 +550,24 @@ async function boot(){
   $('login').hidden=true; $('app').hidden=false;
   $('who').textContent = ME.full_name;
   document.body.classList.toggle('is-admin', ME.role==='admin');
+  if(ME.role==='admin' && C.key){ location.href='index.html'; return; }
+  courseMenu();
   render();
 }
 async function logout(){ await pushProgress(); await sb.auth.signOut(); ME=null; S={quiz:{},scen:{},read:{},name:''}; document.body.classList.remove('is-admin'); showLogin(); }
+
+// ── course switcher ────────────────────────────────────
+function courseMenu(){
+  const list=(window.COURSES||[]);
+  if(list.length<2 || !ME || ME.role==='admin'){ const old=$('coursesbtn'); if(old) old.remove(); return; }
+  const here=C.key||'sales';
+  let b=$('coursesbtn');
+  if(!b){ b=document.createElement('button'); b.id='coursesbtn'; b.className='out'; b.textContent='الكورسات'; $('logout').before(b); }
+  b.onclick=()=>{
+    showOverlay(`<h3 id="ovl-t">الكورسات</h3><p class="setup">كل كورس ليه مستوياته واختباره النهائي وشهادته.</p><div class="clist">${list.map(c=>`<button class="ccard${c.id===here?' cur':''}" data-c="${c.id}" ${c.soon?'disabled':''}><b>${c.title}</b><span>${c.sub}</span><span class="chip${c.id===here?' ok':''}">${c.soon?'قريباً':(c.id===here?'إنت هنا':'ادخل الكورس')}</span></button>`).join('')}</div><button class="btn ghost" data-act="close">قفل</button>`);
+    document.querySelectorAll('.ccard[data-c]').forEach(x=>x.onclick=async()=>{ const c=list.find(k=>k.id===x.dataset.c); if(!c||c.soon) return; $('ovl').hidden=true; if(c.id===here) return; await pushProgress(); location.href=c.page; });
+  };
+}
 
 // ── admin page ─────────────────────────────────────────
 async function callAdmin(body){
@@ -529,18 +576,31 @@ async function callAdmin(body){
   if(data && data.error) throw new Error(data.error);
   return data;
 }
-function stateSummary(st){
-  st=st||{}; const q=st.quiz||{}, rd=st.read||{}, sc=st.scen||{};
-  const pass=M.filter(m=>(q[m.id]||0)>=70).length;
-  const pts=M.reduce((a,m)=>a+Math.min(rd[m.id]||0,m.lessons.length)*10+(sc[m.id]||0)*20+((q[m.id]||0)>=70?q[m.id]+50:0),0);
+function stateSummary(st, MM){
+  MM=MM||M; st=st||{}; const q=st.quiz||{}, rd=st.read||{}, sc=st.scen||{};
+  const pass=MM.filter(m=>(q[m.id]||0)>=70).length;
+  const pts=MM.reduce((a,m)=>a+Math.min(rd[m.id]||0,m.lessons.length)*10+(sc[m.id]||0)*20+((q[m.id]||0)>=70?q[m.id]+50:0),0);
   return {pass, pts};
 }
-function verdictOf(skills, score){
+function verdictOf(skills, score, SK, PS, VS){
   if(!skills) return '';
-  const keys=Object.keys(SKILLS).filter(k=>skills[k]); const weak=keys.filter(k=>skills[k].r/skills[k].n<.67);
-  return score>=85&&!weak.length?'جاهز للشغل':(score>=FINAL_PASS?'كويس ومحتاج متابعة':'محتاج تدريب تاني');
+  SK=SK||SKILLS; PS=PS||FINAL_PASS; VS=VS||C.verdictShort;
+  const keys=Object.keys(SK).filter(k=>skills[k]); const weak=keys.filter(k=>skills[k].r/skills[k].n<.67);
+  return score>=85&&!weak.length?VS[0]:(score>=PS?VS[1]:VS[2]);
 }
+// course data for the admin tabs (the sales course is already on this page; others load on demand)
+const ADM = {course:'sales'};
+function loadScript(src){ return new Promise((res,rej)=>{ const e=document.createElement('script'); e.src=src+'?v='+(window.ACADEMY_VER||'1'); e.onload=res; e.onerror=rej; document.head.appendChild(e); }); }
+async function courseInfo(id){
+  if(id==='sales') return {id, title:'كورس المبيعات', M, SK:SKILLS, pass:FINAL_PASS, vs:C.verdictShort, vd:C.verdicts};
+  const c=(window.COURSES||[]).find(k=>k.id===id);
+  if(!(window.COURSE_DATA && window.COURSE_DATA[id] && window.COURSE_DATA[id].M.length)) for(const f of (c.files||[])) await loadScript(f);
+  return {id, title:c.title, M:window.COURSE_DATA[id].M, SK:c.skills, pass:c.pass||80, vs:['جاهز للشغل','كويس ومحتاج متابعة','محتاج تدريب تاني'], vd:c.verdicts||C.verdicts};
+}
+const CERT_COURSE = {sales:'كورس المبيعات'};
 async function renderAdmin(main){
+  const courses=(window.COURSES||[{id:'sales', title:'كورس المبيعات'}]).filter(c=>!c.soon);
+  (window.COURSES||[]).forEach(c=>CERT_COURSE[c.id]=c.title);
   main.innerHTML = `<div class="mhead"><div class="mh-tx"><div class="eyebrow">الإدارة</div><h2>لوحة الإدارة</h2><p>اعمل حسابات المتدربين، وتابع تقدّم كل واحد ونتيجة الاختبار النهائي وتقرير المهارات.</p></div></div>
    <section class="card"><h3>إضافة متدرب</h3>
     <form id="addf" class="addf">
@@ -550,7 +610,9 @@ async function renderAdmin(main){
      <label>الصلاحية<select id="af-role" class="inp"><option value="trainee">متدرب</option><option value="admin">مدير</option></select></label>
      <div class="row"><button class="btn" id="af-btn">إضافة</button><span id="af-msg" class="setup"></span></div>
     </form></section>
-   <section class="card"><div class="sec-h"><h3>المتدربين</h3><button class="btn ghost" id="arefresh">تحديث</button></div><div id="alist" class="setup">جاري التحميل...</div></section>
+   <section class="card"><div class="sec-h"><h3>المتدربين</h3><button class="btn ghost" id="arefresh">تحديث</button></div>
+    ${courses.length>1?`<div class="ctabs" role="tablist">${courses.map(c=>`<button role="tab" data-ct="${c.id}" aria-selected="${c.id===ADM.course}">${c.title}</button>`).join('')}</div>`:''}
+    <div id="alist" class="setup">جاري التحميل...</div></section>
    <section class="card"><h3>التحقق من شهادة</h3><div class="row"><input id="vcode" class="inp" dir="ltr" placeholder="BC-XXXXXX"><button class="btn ghost" id="vbtn">تحقق</button><span id="vmsg"></span></div></section>`;
   const gen=()=>{ const c='abcdefghjkmnpqrstuvwxyz23456789'; let s=''; for(let i=0;i<8;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; };
   $('af-gen').onclick=()=>{ $('af-pass').value=gen(); };
@@ -563,28 +625,38 @@ async function renderAdmin(main){
     }catch(err){ $('af-msg').textContent=err.message; }
     $('af-btn').disabled=false;
   };
-  $('arefresh').onclick=loadList;
-  $('vbtn').onclick=async()=>{ const {data}=await sb.rpc('verify_certificate',{p_cert:$('vcode').value}); const r=data&&data[0]; $('vmsg').innerHTML = r?`<span class="chip ok">شهادة صحيحة: ${esc(r.full_name)} · ${toAr(r.score)}٪ · ${new Date(r.cert_date).toLocaleDateString('ar-EG')}</span>`:'<span class="chip">مفيش شهادة بالرقم ده</span>'; };
+  $('arefresh').onclick=()=>loadList();
+  main.querySelectorAll('[data-ct]').forEach(b=>b.onclick=()=>{ ADM.course=b.dataset.ct; main.querySelectorAll('[data-ct]').forEach(x=>x.setAttribute('aria-selected', x===b)); loadList(); });
+  $('vbtn').onclick=async()=>{
+    let {data, error}=await sb.rpc('verify_any_certificate',{p_cert:$('vcode').value});
+    if(error){ ({data}=await sb.rpc('verify_certificate',{p_cert:$('vcode').value})); }
+    const r=data&&data[0];
+    $('vmsg').innerHTML = r?`<span class="chip ok">شهادة صحيحة: ${esc(r.full_name)}${r.course?' · '+esc(CERT_COURSE[r.course]||r.course):''} · ${toAr(r.score)}٪ · ${new Date(r.cert_date).toLocaleDateString('ar-EG')}</span>`:'<span class="chip">مفيش شهادة بالرقم ده</span>'; };
   async function loadList(){
-    const {data, error} = await sb.rpc('admin_overview');
+    const cid=ADM.course, sales=cid==='sales';
+    $('alist').textContent='جاري التحميل...';
+    let CI; try{ CI=await courseInfo(cid); }catch(e){ $('alist').textContent='مش قادر يحمّل بيانات الكورس.'; return; }
+    const MM=CI.M, P=CI.pass;
+    const {data, error} = sales ? await sb.rpc('admin_overview') : await sb.rpc('admin_course_overview',{p_course:cid});
+    if(cid!==ADM.course) return;
     if(error){ $('alist').textContent='مش قادر يحمّل القايمة: '+error.message; return; }
     if(!data.length){ $('alist').textContent='لسه مفيش متدربين.'; return; }
     $('alist').innerHTML = `<div class="tw"><table class="t adm"><thead><tr><th>الاسم</th><th>المستخدم</th><th>الموديولات</th><th>النقط</th><th>الاختبار النهائي</th><th>التقييم</th><th>الشهادة</th><th>إجراءات</th></tr></thead><tbody>${data.map(r=>{
-      const s=stateSummary(r.state);
-      const fin = r.finished_at ? `<b style="color:var(${r.score>=FINAL_PASS?'--good':'--warm'})">${toAr(r.score)}٪</b>` : (r.started_at?`شغال (${toAr(r.answered)}/${toAr(r.total)})`:(r.final_unlocked?'مفتوح':'—'));
-      return `<tr class="${r.active?'':'off'}"><td><b>${esc(r.full_name)}</b>${r.role==='admin'?' <span class="chip">مدير</span>':''}${r.active?'':' <span class="chip">متوقف</span>'}<div class="sl">${r.progress_at?('آخر نشاط '+new Date(r.progress_at).toLocaleDateString('ar-EG')):'لسه مدخلش'}</div></td><td dir="ltr">${esc(r.username)}</td><td>${toAr(s.pass)} / ${toAr(M.length)}</td><td>${toAr(s.pts + (r.score>=FINAL_PASS?r.score*2+200:0))}</td><td>${fin}</td><td>${r.skills?`<button class="lnk" data-sk="${r.id}">${verdictOf(r.skills,r.score)}</button>`:'—'}</td><td dir="ltr">${r.cert_id||'—'}</td>
+      const s=stateSummary(r.state, MM);
+      const fin = r.finished_at ? `<b style="color:var(${r.score>=P?'--good':'--warm'})">${toAr(r.score)}٪</b>` : (r.started_at?`شغال (${toAr(r.answered)}/${toAr(r.total)})`:(r.final_unlocked?'مفتوح':'—'));
+      return `<tr class="${r.active?'':'off'}"><td><b>${esc(r.full_name)}</b>${r.role==='admin'?' <span class="chip">مدير</span>':''}${r.active?'':' <span class="chip">متوقف</span>'}<div class="sl">${r.progress_at?('آخر نشاط '+new Date(r.progress_at).toLocaleDateString('ar-EG')):'لسه مدخلش'}</div></td><td dir="ltr">${esc(r.username)}</td><td>${toAr(s.pass)} / ${toAr(MM.length)}</td><td>${toAr(s.pts + (r.score>=P?r.score*2+200:0))}</td><td>${fin}</td><td>${r.skills?`<button class="lnk" data-sk="${r.id}">${verdictOf(r.skills,r.score,CI.SK,P,CI.vs)}</button>`:'—'}</td><td dir="ltr">${r.cert_id||'—'}</td>
        <td><div class="acts"><button class="mini" data-pw="${r.id}">كلمة سر جديدة</button><button class="mini warn" data-prog="${r.id}">إعادة الكورس</button><button class="mini" data-act="${r.id}" data-on="${r.active?0:1}">${r.active?'إيقاف':'تفعيل'}</button>${r.started_at?`<button class="mini warn" data-reset="${r.id}">إعادة الاختبار</button>`:`<button class="mini" data-unlock="${r.id}" data-on="${r.final_unlocked?0:1}">${r.final_unlocked?'اقفل النهائي':'افتح النهائي'}</button>`}</div></td></tr>
-       <tr class="skrow" id="sk-${r.id}" hidden><td colspan="8">${r.skills?skillReport(r.skills):''}</td></tr>`;}).join('')}</tbody></table></div>`;
+       <tr class="skrow" id="sk-${r.id}" hidden><td colspan="8">${r.skills?skillReport(r.skills, CI.SK, CI.vd, P):''}</td></tr>`;}).join('')}</tbody></table></div>`;
     $('alist').querySelectorAll('[data-sk]').forEach(b=>b.onclick=()=>{ const t=$('sk-'+b.dataset.sk); t.hidden=!t.hidden; });
     $('alist').querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{ const p=gen(); try{ await callAdmin({action:'password', user_id:b.dataset.pw, password:p}); showOverlay(`<h3 id="ovl-t">كلمة السر الجديدة</h3><div class="big-b" dir="ltr">${p}</div><p class="setup">ابعتها للمتدرب. مش هتظهر تاني.</p><button class="btn" data-act="ok">تمام</button>`); }catch(e){ toast(e.message); } });
     $('alist').querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{ try{ await callAdmin({action:'active', user_id:b.dataset.act, active:b.dataset.on==='1'}); loadList(); }catch(e){ toast(e.message); } });
-    $('alist').querySelectorAll('[data-unlock]').forEach(b=>b.onclick=async()=>{ const {error}=await sb.rpc('admin_set_unlock',{p_user:b.dataset.unlock, p_on:b.dataset.on==='1'}); if(error) toast(error.message); loadList(); });
+    $('alist').querySelectorAll('[data-unlock]').forEach(b=>b.onclick=async()=>{ const on=b.dataset.on==='1'; const {error}= sales ? await sb.rpc('admin_set_unlock',{p_user:b.dataset.unlock, p_on:on}) : await sb.rpc('admin_set_course_unlock',{p_user:b.dataset.unlock, p_course:cid, p_on:on}); if(error) toast(error.message); loadList(); });
     $('alist').querySelectorAll('[data-prog]').forEach(b=>b.onclick=()=>{
       const r=data.find(x=>x.id===b.dataset.prog), st=r.state||{}, q=st.quiz||{}, rd=st.read||{};
-      const opts=M.map((m,i)=>{ const sc=q[m.id], seen=(rd[m.id]||0)>0;
+      const opts=MM.map((m,i)=>{ const sc=q[m.id], seen=(rd[m.id]||0)>0;
         const tag = sc!=null ? (sc>=70?`✓ ${toAr(sc)}٪`:`${toAr(sc)}٪`) : (seen?'بدأه':'لسه');
         return `<option value="${i}">مستوى ${toAr(i+1)}: ${esc(m.title)} (${tag})</option>`; }).join('');
-      showOverlay(`<h3 id="ovl-t">إعادة الكورس: ${esc(r.full_name)}</h3>
+      showOverlay(`<h3 id="ovl-t">إعادة ${esc(CI.title)}: ${esc(r.full_name)}</h3>
         <div class="rp">
          <label class="rp-o"><input type="radio" name="rpm" value="all" checked> الكورس كله من الأول</label>
          <label class="rp-o"><input type="radio" name="rpm" value="from"> من مستوى معيّن واللي بعده</label>
@@ -596,8 +668,8 @@ async function renderAdmin(main){
         <button class="btn" data-act="yes">امسح</button><button class="btn ghost" data-act="no">إلغاء</button>`, async a=>{
         if(a!=='yes') return;
         const mode=(document.querySelector('input[name=rpm]:checked')||{}).value, i=+$('rp-mod').value, fin=$('rp-fin').checked;
-        const mods = mode==='all' ? null : (mode==='from' ? M.slice(i).map(m=>m.id) : [M[i].id]);
-        const {error}=await sb.rpc('admin_reset_progress',{p_user:r.id, p_mods:mods, p_final:fin});
+        const mods = mode==='all' ? null : (mode==='from' ? MM.slice(i).map(m=>m.id) : [MM[i].id]);
+        const {error}= sales ? await sb.rpc('admin_reset_progress',{p_user:r.id, p_mods:mods, p_final:fin}) : await sb.rpc('admin_reset_course_progress',{p_user:r.id, p_course:cid, p_mods:mods, p_final:fin});
         if(error) return toast(error.message);
         toast(mode==='all' ? 'اتعمل إعادة للكورس كله' : (mode==='from' ? `اتعمل إعادة من مستوى ${toAr(i+1)}` : `اتعمل إعادة لمستوى ${toAr(i+1)}`));
         loadList();
@@ -605,7 +677,7 @@ async function renderAdmin(main){
       const sel=$('rp-mod'), sync=()=>{ sel.disabled = document.querySelector('input[name=rpm]:checked').value==='all'; };
       document.querySelectorAll('input[name=rpm]').forEach(x=>x.onchange=sync); sync();
     });
-    $('alist').querySelectorAll('[data-reset]').forEach(b=>b.onclick=()=>showOverlay(`<h3 id="ovl-t">إعادة الاختبار النهائي؟</h3><p class="setup">هيتمسح الاختبار ونتيجته والشهادة، والمتدرب ياخد محاولة جديدة.</p><button class="btn" data-act="yes">أيوه، امسح</button><button class="btn ghost" data-act="no">لأ</button>`, async a=>{ if(a!=='yes') return; const {error}=await sb.rpc('admin_reset_final',{p_user:b.dataset.reset}); if(error) toast(error.message); else toast('اتمسح الاختبار النهائي'); loadList(); }));
+    $('alist').querySelectorAll('[data-reset]').forEach(b=>b.onclick=()=>showOverlay(`<h3 id="ovl-t">إعادة الاختبار النهائي؟</h3><p class="setup">هيتمسح الاختبار ونتيجته والشهادة في ${esc(CI.title)}، والمتدرب ياخد محاولة جديدة.</p><button class="btn" data-act="yes">أيوه، امسح</button><button class="btn ghost" data-act="no">لأ</button>`, async a=>{ if(a!=='yes') return; const {error}= sales ? await sb.rpc('admin_reset_final',{p_user:b.dataset.reset}) : await sb.rpc('admin_reset_course_final',{p_user:b.dataset.reset, p_course:cid}); if(error) toast(error.message); else toast('اتمسح الاختبار النهائي'); loadList(); }));
   }
   loadList();
 }

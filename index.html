@@ -269,6 +269,14 @@ table.adm tr.off td{opacity:.55}
 .rp{display:flex;flex-direction:column;gap:8px;text-align:start;margin:8px 0 14px}
 .rp-o{display:flex;align-items:center;gap:8px;font-size:14.5px}
 .rp select{width:100%}
+.ctabs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px}
+.ctabs button{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer}
+.ctabs button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.clist{display:grid;gap:10px;margin:10px 0 14px;text-align:start}
+.ccard{font:inherit;display:flex;flex-direction:column;gap:4px;align-items:flex-start;text-align:start;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:14px;padding:12px 14px;cursor:pointer}
+.ccard b{font-size:16px}.ccard span{font-size:13.5px;color:var(--muted)}
+.ccard.cur{border-color:var(--accent)}.ccard:disabled{opacity:.55;cursor:default}
+.ccard:not(:disabled):hover{border-color:var(--accent)}
 .mini{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:12.5px;color:var(--ink);white-space:nowrap}
 .mini:hover{border-color:var(--accent);color:var(--accent)}
 .mini.warn{color:var(--warm)}
@@ -329,11 +337,13 @@ table.adm tr.off td{opacity:.55}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="config.js?v=20261021a"></script>
-<script src="course-data.js?v=20261021a"></script>
-<script src="quizzes.js?v=20261021a"></script>
-<script src="final-bank.js?v=20261021a"></script>
-<script src="brands.js?v=20261021a"></script>
-<script src="app.js?v=20261021a"></script>
+<script src="config.js?v=20261025a"></script>
+<script>window.ACADEMY_VER="20261025a";</script>
+<script src="courses.js?v=20261025a"></script>
+<script src="course-data.js?v=20261025a"></script>
+<script src="quizzes.js?v=20261025a"></script>
+<script src="final-bank.js?v=20261025a"></script>
+<script src="brands.js?v=20261025a"></script>
+<script src="app.js?v=20261025a"></script>
 </body>
 </html>
