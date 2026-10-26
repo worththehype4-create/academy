@@ -772,4 +772,7 @@ const Q = {
 };
 const M = window.COURSE_DATA.tech.M;
 M.forEach(m=>{ if(Q[m.id]) m.qz = Q[m.id]; });
+// Course order (modules from later files are slotted in where they belong).
+const ORDER = ['t-start','t-heat','t-cycle','t-refrig','t-gauges','t-check','t-install','t-vacuum','t-charging','t-highwall','t-invcharge','t-parts','t-elec','t-inverter','t-fans','t-trouble','t-air','t-ducted','t-cases','t-maint'];
+M.sort((a,b)=>{ const x=ORDER.indexOf(a.id), y=ORDER.indexOf(b.id); return (x<0?999:x)-(y<0?999:y); });
 })();
