@@ -4,7 +4,7 @@
 // logo: path of an official logo file supplied by BrotherCond (e.g. "logos/carrier.png"); null shows the name only
 window.HP45_RULE = "تكييفات ٤ و٥ حصان في كل الماركات بارد/ساخن بس، مفيش منها بارد فقط.";
 window.BRANDS = [
- {n:"تراين", en:"Trane", verified:true, logo:null, origin:"أمريكية", eg:"برازر كوند الموزع العام المعتمد لتكييفاتها المنزلية في مصر", tier:"مرتفع",
+ {n:"ترين", en:"Trane", verified:true, logo:null, origin:"أمريكية", eg:"برازر كوند الموزع العام المعتمد لتكييفاتها المنزلية في مصر", tier:"مرتفع",
   lines:[["Contura 6G Power Saving","عادي (موفّر للطاقة)","١٫٥ حصان بس","بارد فقط / بارد وساخن"]],
   plus:"اسم عالمي قوي في التكييف، والضمان وقطع الغيار الأصلية والصيانة من برازر كوند مباشرة", watch:"متاح عندنا ١٫٥ حصان بس، وأقل شهرة عند عملاء البيوت فمحتاج تعريف بثقة", fit:"أوضة ١٫٥ حصان لعميل عايز جودة عالية وخدمة مباشرة من الموزع العام"},
  {n:"كاريير", en:"Carrier", verified:true, logo:null, origin:"أمريكية", eg:"بتتصنع في مصر", tier:"متوسط إلى مرتفع",
